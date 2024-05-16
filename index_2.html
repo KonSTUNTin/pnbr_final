@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GLSL Shader Viewer</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/glslify/2.0.2/glslify.min.js"></script>
+    <script>
+        window.onload = function() {
+            // Инициализация сцены
+            var scene = new THREE.Scene();
+            var time = 0;
+            var step = 0;
+            var frame = 0;
+            var animaton_keyframes = [0, 20, 30, 90, 100]
+            var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            var renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Создание геометрии (просто плоскость, на которую будем накладывать шейдер)
+            var geometry = new THREE.PlaneGeometry(window.innerWidth, window.innerHeight, 2, 2);
+            
+            // Загрузка GLSL шейдера
+            var material = new THREE.ShaderMaterial({
+                vertexShader: document.getElementById('vertexShader').textContent,
+                fragmentShader: document.getElementById('fragmentShader').textContent,
+                uniforms: {
+                    u_mouse: { value: new THREE.Vector2() }, // Передаем позицию курсора мыши в шейдер
+                    time: { value: 0 },
+                    progr: { value: 0 },
+                    resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+                }
+            });
+            
+            // Создание объекта с использованием геометрии и материала
+            var mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+
+            // Установка камеры
+            camera.position.z = 1;
+
+            // Отрисовка сцены
+            var animate = function () {
+                requestAnimationFrame(animate);
+                renderer.render(scene, camera);
+                time+=0.01;
+                if(frame < animaton_keyframes[step])frame+=0.5;
+                material.uniforms.progr.value = frame/100;
+                
+                material.uniforms.time.value = time
+            };
+            
+            animate();
+            document.addEventListener('click', function() {
+                
+               step++
+               step %= (animaton_keyframes.length)
+               if(step ==0)frame = 0
+               console.log(frame)
+            });
+
+
+            document.addEventListener('mousemove', function(event) {
+                
+                var mouseX = event.clientX;
+                var mouseY = event.clientY;
+                material.uniforms.u_mouse.value.x = mouseX / window.innerWidth;
+                material.uniforms.u_mouse.value.y = mouseY/ window.innerWidth;
+               
+            });
+        };
+    </script>
+
+    <!-- GLSL шейдеры -->
+    <script id="vertexShader" type="x-shader/x-vertex">
+
+        varying vec2 vUv;
+        void main(){
+            vUv = uv.xy;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.);
+        }
+    </script>
+
+    <script id="fragmentShader" type="x-shader/x-fragment">
+       
+        uniform vec2 u_mouse; // Переменная для позиции курсора мыши
+        uniform float time;
+        uniform float progr;
+        uniform vec2 resolution;
+        varying vec2 vUv; 
+        #define CORRECT_STREAMLINES
+
+    #define saturate(x) clamp(x, 0., 1.)
+    #define e 0.000001
+    #define shape 0.1
+    const float PI = 3.1419;
+
+    float rand(float n){return fract(sin(n) * 43758.5453123);}
+
+    vec2 force(vec2 p, vec2 pole) {
+        // return normalize(p - pole) / distance(p, pole);
+        // optim by Fabrice:
+        p -= pole;
+        return p / dot(p,p);
+    }
+
+    float calcVelocity(vec2 p) {
+        vec2 velocity = vec2(0);
+        vec2 pole;
+        vec2 f;
+        float o, r, m;
+        float flip = 1.;
+        float j = 0.;
+        float limit = 15.;
+        
+        for (float i = 0.; i < limit; i++) {
+            r = rand(i / limit) - .5;
+            m = rand(i + 1.) - .5;
+            
+            m *= (time + u_mouse.x * 10. + u_mouse.y * 10. +(23.78 * 1000.)) * 2.;
+            o = i + r + m;
+          
+            pole = vec2(
+                sin(o / limit * PI * 2.),
+                cos(o / limit * PI * 2.)
+            );
+            
+            f = force(p, pole);
+            flip *= -1.;
+            velocity -= f * flip;
+            j += atan(f.x, f.y) * flip;
+        }  
+        velocity = normalize(velocity);
+        #ifdef CORRECT_STREAMLINES
+            return j;
+        #endif
+        return atan(velocity.x, velocity.y);
+    }
+
+    vec2 dir(float a) {
+        return vec2(sin(a), cos(a));
+    }
+
+    float calcDerivitive(float a, vec2 p) {
+   
+        vec2 v = dir(a) ;
+        float n = 2. / resolution.x;
+        float d = 0.;
+        d += length(v - dir(calcVelocity(p + vec2(0,n))));
+        d += length(v - dir(calcVelocity(p + vec2(n,0))));
+        d += length(v - dir(calcVelocity(p + vec2(n,n))));
+        d += length(v - dir(calcVelocity(p + vec2(n,-n))));
+        d /= 4.;
+        return d;
+    }
+    float hash(vec2 p)
+    {
+        p = fract(p * vec2(123.34, 456.21));
+        p += dot(p, p + 45.32);
+        return fract(p.x * p.y);
+    }
+
+    float circle (vec2 kk, float r, float k_2, vec2 p, float f, float progress){
+        float k = resolution.y / resolution.x;
+        float pixelSize = (1.0 +  smoothstep(.5, 0.8, progress) * 10.)/ resolution.y ;
+        vec2 uv = gl_FragCoord.xy / resolution.xy;  // Нормализация координат
+        uv.y -= smoothstep(.1, .7, progress) * .3;
+        uv = uv * 2.0 - 1.0;
+        uv.y *= k ;
+        uv.y += f * sin(time * 7. + uv.x * 20. * kk.y) *.01 * (1. - progress) ;
+        uv.x += f * sin(time * 6.+ uv.y * 13. * kk.y) *.01 * (1. - progress) ;
+        uv *= smoothstep(.1, .7, progress) * 5. + .9;
+        
+        uv = (uv + 1.0) / 2.0;
+        
+        uv.x += p.x;
+        
+        float h = smoothstep(k_2 * 1.1, k_2 * .9, uv.x);
+
+        float l = length(uv - vec2(.5, .5));
+        float l_1 = smoothstep(r + pixelSize ,r, l);
+        float ll = length(uv - vec2(.5 + .5 * smoothstep(.7, 1.,progress), .5));
+        float l_2 = smoothstep(r ,r - pixelSize * 1., ll); 
+        //l_2 *= 2.;
+        return (l_1 - l_2) * h;
+    }
+    
+
+    void main( )
+    {
+        float k = resolution.y / resolution.x;
+        float pixelSize = 1.0 / resolution.y;
+        vec2 uv = gl_FragCoord.xy / resolution.xy;  // Нормализация координат
+        uv = uv * 2.0 - 1.0;
+        uv.y *= k;
+        uv = (uv + 1.0) / 2.0;
+        float l = length(uv - vec2(.5));
+
+        vec2 p = (-resolution.xy + 2.0 * gl_FragCoord.xy) / resolution.x;
+        
+        p *= 3.;//p * (100.* u_mouse.x + 3.1);
+        float a = calcVelocity(p);
+        float deriv = calcDerivitive(a, p);
+        a /= PI * 2.;
+        
+       
+        float spacing = 1./50.;
+        float lines = fract(a / spacing);
+      
+        lines = min(lines, 1. - lines) * 2.;
+        // thin stripes into lines
+        lines /= deriv / spacing;
+        // maintain constant line width across different screen sizes
+        lines -= resolution.x * .0001 ;
+        // don't blow out contrast when blending below
+        lines = saturate(lines);
+
+        float disc = length(p) - 1.;
+        disc /= fwidth(disc);
+        disc = saturate(disc);
+        lines = mix(1. - lines, lines, disc);
+
+      
+
+        float v = 1. - progr;
+        float c;
+        for(float i = 0.; i < 5. * (1.- v) + 2.; i++){
+
+            c +=circle(
+                vec2(i / 7.), 
+                .165 + i * 0.001 * v, 
+                1.,//.5 + .5 * (1. - v) ,
+                vec2(0.),//vec2(0. - i * .01 * v, 0.),
+                (1. - v) * ( i / 7.) * 2.,
+                v
+                );
+
+            c = clamp(c, 0., 1.);
+            
+        }  
+
+        vec2 pv = (gl_FragCoord.xy * 2.0 - resolution.xy) / resolution.y;
+        vec3 finalColor = vec3(0.0);
+        for (float i = -1.0; i <= 1.0; ++i)
+        {
+            for (float j = -1.0; j <= 1.0; ++j)
+            {
+                vec2 gv = vec2(
+                    pv.x * 0.7 + hash(pv + fract(time) * e) * i,
+                    pv.y * 0.7 + hash(pv + shape + fract(time) * e) * j
+                );
+
+                float d = length(gv);
+                vec3 col = vec3(0.01 / d);
+                finalColor += col;
+            } 
+        }
+
+       
+        float show = smoothstep( (1.- v) ,( 1.- v) * 2., l );
+        float l_1 = smoothstep(.165 + pixelSize,.165, l);
+        l_1 -= smoothstep(.165,.165 - pixelSize, l);
+        lines += smoothstep(.165 + pixelSize,.165, l);
+        
+        
+
+        vec4 orange = vec4(0.996, 0.561, 0.188, 1.);
+        vec4 green = vec4(0.545, 0.894, 0.851,1.);
+        vec4 grad = mix(orange, green, smoothstep(.16, .18, l));
+        
+        
+        float animation = smoothstep(.9, .95, 1.- v);
+        c = mix( c ,clamp(1.- lines, 0., 1.) + l_1 , animation) ;
+        c = clamp(c, 0.,1.);
+        
+        
+    
+
+        gl_FragColor = vec4(c ) * grad ;
+    }
+    
+
+        
+    </script>
+    
+</body>
+</html>
