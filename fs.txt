@@ -1,102 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GLSL Shader Viewer</title>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-        }
-        canvas {
-            display: block;
-        }
-    </style>
-</head>
-<body>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/glslify/2.0.2/glslify.min.js"></script>
-    <script>
-        window.onload = function() {
-            // Инициализация сцены
-            var scene = new THREE.Scene();
-            var time = 0;
-            var step = 0;
-            var frame = 0;
-            var animaton_keyframes = [0, 20, 30, 90, 100]
-            var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            var renderer = new THREE.WebGLRenderer();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            document.body.appendChild(renderer.domElement);
-
-            // Создание геометрии (просто плоскость, на которую будем накладывать шейдер)
-            var geometry = new THREE.PlaneGeometry(window.innerWidth, window.innerHeight, 2, 2);
-            
-            // Загрузка GLSL шейдера
-            var material = new THREE.ShaderMaterial({
-                vertexShader: document.getElementById('vertexShader').textContent,
-                fragmentShader: document.getElementById('fragmentShader').textContent,
-                uniforms: {
-                    u_mouse: { value: new THREE.Vector2() }, // Передаем позицию курсора мыши в шейдер
-                    time: { value: 0 },
-                    progr: { value: 0 },
-                    resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
-                }
-            });
-            
-            // Создание объекта с использованием геометрии и материала
-            var mesh = new THREE.Mesh(geometry, material);
-            scene.add(mesh);
-
-            // Установка камеры
-            camera.position.z = 1;
-
-            // Отрисовка сцены
-            var animate = function () {
-                requestAnimationFrame(animate);
-                renderer.render(scene, camera);
-                time+=0.01;
-                if(frame < animaton_keyframes[step])frame+=0.5;
-                material.uniforms.progr.value = frame/100;
-                
-                material.uniforms.time.value = time
-            };
-            
-            animate();
-            document.addEventListener('click', function() {
-                
-               step++
-               step %= (animaton_keyframes.length)
-               if(step ==0)frame = 0
-               console.log(frame)
-            });
-
-
-            document.addEventListener('mousemove', function(event) {
-                
-                var mouseX = event.clientX;
-                var mouseY = event.clientY;
-                material.uniforms.u_mouse.value.x = mouseX / window.innerWidth;
-                material.uniforms.u_mouse.value.y = (window.innerHeight - mouseY)/ window.innerHeight;
-               
-            });
-        };
-    </script>
-
-    <!-- GLSL шейдеры -->
-    <script id="vertexShader" type="x-shader/x-vertex">
-
-        varying vec2 vUv;
-        void main(){
-            vUv = uv.xy;
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.);
-        }
-    </script>
-
-    <script id="fragmentShader" type="x-shader/x-fragment">
-       
-        uniform vec2 u_mouse; // Переменная для позиции курсора мыши
+ uniform vec2 u_mouse; // Переменная для позиции курсора мыши
         uniform float time;
         uniform float progr;
         uniform vec2 resolution;
@@ -130,7 +32,7 @@
             r = rand(i / limit) - .5;
             m = rand(i + 1.) - .5;
             
-            m *= (time +(23.78 * 1000.)) * 2.; // u_mouse.x * 10. + u_mouse.y * 10.
+            m *= (time + u_mouse.x * 10. + u_mouse.y * 10. +(23.78 * 1000.)) * 2.;
             o = i + r + m;
           
             pole = vec2(
@@ -210,13 +112,7 @@
         float l = length(uv - vec2(.5));
 
         vec2 p = (-resolution.xy + 2.0 * gl_FragCoord.xy) / resolution.x;
-
-        float mk = clamp(smoothstep(1., .0, cos(( 1. - length(uv - u_mouse) ) ))/2., 0., .5);
-
-        p += mk;
-
-
-
+        
         p *= 3.;//p * (100.* u_mouse.x + 3.1);
         float a = calcVelocity(p);
         float deriv = calcDerivitive(a, p);
@@ -234,11 +130,11 @@
         // don't blow out contrast when blending below
         lines = saturate(lines);
 
-        //float disc = length(p) - 1.;
-        //disc /= fwidth(disc);
-        //disc = saturate(disc);
-        //lines = (1. - lines) * disc;//mix(1. - lines, lines, disc);
-        //lines = 1. - lines;
+        float disc = length(p) - 1.;
+        disc /= fwidth(disc);
+        disc = saturate(disc);
+        lines = mix(1. - lines, lines, disc);
+
       
 
         float v = 1. - progr;
@@ -265,8 +161,8 @@
             for (float j = -1.0; j <= 1.0; ++j)
             {
                 vec2 gv = vec2(
-                    pv.x * 0.7 + hash(pv + fract(time) * e) + i,
-                    pv.y * 0.7 + hash(pv + shape + fract(time) * e) + j
+                    pv.x * 0.7 + hash(pv + fract(time) * e) * i,
+                    pv.y * 0.7 + hash(pv + shape + fract(time) * e) * j
                 );
 
                 float d = length(gv);
@@ -279,7 +175,7 @@
         float show = smoothstep( (1.- v) ,( 1.- v) * 2., l );
         float l_1 = smoothstep(.165 + pixelSize,.165, l);
         l_1 -= smoothstep(.165,.165 - pixelSize, l);
-        lines += smoothstep(.165 + pixelSize,.165, l) ;
+        lines += smoothstep(.165 + pixelSize,.165, l);
         
         
 
@@ -295,12 +191,6 @@
         
     
 
-        gl_FragColor = vec4(c);// * grad ;
+        gl_FragColor = vec4(c ) * grad ;
     }
     
-
-        
-    </script>
-    
-</body>
-</html>
