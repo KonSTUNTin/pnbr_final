@@ -8,10 +8,19 @@
         body {
             margin: 0;
             overflow: hidden;
+            background-color: black;
         }
         canvas {
             display: block;
+            translate: 0vh -25vh;
+            scale: .2;
+            transition: all 1s cubic-bezier(.47,1.64,.41,.8);/*, translate 500ms ease-out;*/
         }
+        .canvas_bg {
+            scale: 1;
+            translate: 0vh ;
+        }
+       
     </style>
 </head>
 <body>
@@ -29,6 +38,7 @@
             var renderer = new THREE.WebGLRenderer();
             renderer.setSize(window.innerWidth, window.innerHeight);
             document.body.appendChild(renderer.domElement);
+            renderer.domElement.setAttribute("id", "canvas");
 
             // Создание геометрии (просто плоскость, на которую будем накладывать шейдер)
             var geometry = new THREE.PlaneGeometry(window.innerWidth, window.innerHeight, 2, 2);
@@ -69,7 +79,8 @@
                step++
                step %= (animaton_keyframes.length)
                if(step ==0)frame = 0
-               console.log(frame)
+               if(step>2)renderer.domElement.classList.add("canvas_bg")
+               
             });
 
 
@@ -177,12 +188,11 @@
         float k = resolution.y / resolution.x;
         float pixelSize = (1.0 +  smoothstep(.5, 0.8, progress) * 10.)/ resolution.y ;
         vec2 uv = gl_FragCoord.xy / resolution.xy;  // Нормализация координат
-        uv.y -= smoothstep(.1, .7, progress) * .3;
+       
         uv = uv * 2.0 - 1.0;
         uv.y *= k ;
         uv.y += f * sin(time * 7. + uv.x * 20. * kk.y) *.01 * (1. - progress) ;
         uv.x += f * sin(time * 6.+ uv.y * 13. * kk.y) *.01 * (1. - progress) ;
-        uv *= smoothstep(.1, .7, progress) * 5. + .9;
         
         uv = (uv + 1.0) / 2.0;
         
@@ -215,9 +225,7 @@
 
         p += mk;
 
-
-
-        p *= 3.;//p * (100.* u_mouse.x + 3.1);
+        p *= 2.;//p * (100.* u_mouse.x + 3.1);
         float a = calcVelocity(p);
         float deriv = calcDerivitive(a, p);
         a /= PI * 2.;
@@ -285,7 +293,8 @@
 
         vec4 orange = vec4(0.996, 0.561, 0.188, 1.);
         vec4 green = vec4(0.545, 0.894, 0.851,1.);
-        vec4 grad = mix(orange, green, smoothstep(.16, .18, l));
+        float c_path = smoothstep(.3, .7, l);
+        vec4 grad = mix(orange, green, c_path);
         
         
         float animation = smoothstep(.9, .95, 1.- v);
@@ -295,7 +304,7 @@
         
     
 
-        gl_FragColor = vec4(c);// * grad ;
+        gl_FragColor = vec4(c) * grad ;
     }
     
 
